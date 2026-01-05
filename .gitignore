@@ -1,16 +1,32 @@
-.env
-.venv
-# Environnement virtuel
-venv/
-.venv/
-env/
-__pycache__/
-*.py[cod]
-
-# Distribution / Build
-dist/
-build/
-*.egg-info/
-
 # Jupyter Notebook
 .ipynb_checkpoints
+
+# Environnement Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Variables d'environnement
+.env
+
+# Données sensibles
+*.json
+!templates/*
+
+# Logs
+/logs/
+*.log
+
+# Base de données locale
+*.db
+*.sqlite
+
+# IDE/éditeurs
+.vscode/
+.idea/
+*.swp
+
+# Docker
+.DS_Store
