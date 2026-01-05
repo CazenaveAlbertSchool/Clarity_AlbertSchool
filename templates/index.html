@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clarity MVP</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <h1>Clarity MVP</h1>
+
+    <!-- Formulaire d'upload -->
+    <form method="POST" enctype="multipart/form-data">
+        <input type="file" name="document" accept=".pdf,.jpg,.png" required>
+        <button type="submit">Uploader et Traiter</button>
+    </form>
+
+    <!-- Messages flash -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <!-- Liste des documents -->
+    <h2>Documents Traités</h2>
+    <ul>
+        {% for doc in documents %}
+            <li>
+                <strong>{{ doc.filename }}</strong>
+                <p>Entités : {{ doc.entities|join(", ") }}</p>
+                <p>Statut : {{ doc.status }}</p>
+            </li>
+        {% endfor %}
+    </ul>
+</body>
+</html>
