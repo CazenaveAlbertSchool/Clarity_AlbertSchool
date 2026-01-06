@@ -1,5 +1,6 @@
 import os
 from google.oauth2 import service_account
+from google.auth import default
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from googleapiclient.errors import HttpError
@@ -7,7 +8,7 @@ import io
 from config import SERVICE_ACCOUNT_KEY
 
 def get_drive_service():
-    credentials = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_KEY, scopes=['https://www.googleapis.com/auth/drive'])
+    credentials, _ = default()
     return build('drive', 'v3', credentials=credentials)
 
 def list_files(mime_type=None):

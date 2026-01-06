@@ -11,7 +11,6 @@ Ce projet permet de traiter des documents stockés dans Google Drive en utilisan
 
 ## Prérequis
 1. Compte Google Cloud avec les API activées
-2. Fichier de clé de compte de service (`service-account-key.json`)
 3. Docker pour le déploiement sur Cloud Run
 
 ## Déploiement

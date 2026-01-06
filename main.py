@@ -31,5 +31,22 @@ def process():
     
     return jsonify({"status": "success", "document_id": doc_id})
 
+@app.route('/test-ocr', methods=['POST'])
+def test_ocr():
+    if 'file' not in request.files:
+        return jsonify({"error": "Aucun fichier uploadé"}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "Fichier vide"}), 400
+
+    # Sauvegarde temporairement le fichier
+    file_path = f"temp/{file.filename}"
+    file.save(file_path)
+
+    # Appel à la fonction OCR
+    text = detect_text(file_path)
+    return jsonify({"text": text})
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
