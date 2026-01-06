@@ -1,6 +1,6 @@
 import pytest
 from app import app
-from config import Config
+from Clarity_MVP.config import Config
 
 @pytest.fixture
 def client():
