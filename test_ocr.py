@@ -19,7 +19,7 @@ print(f"Credentials valides: {credentials.valid}")
 print(f"Scopes: {credentials.scopes}")
 
 # 3. Teste avec une vraie image
-image_path = "test_image.jpg"  # Remplace par le chemin d'une vraie image dans ton projet
+image_path = "/Users/Cyrpien/Desktop/Cours Master 2/Google Project/Clarity_MVP/temp/Carte d'identité verso Emeline.jpg"  # Remplace par le chemin d'une vraie image dans ton projet
 
 if not os.path.exists(image_path):
     print(f"❌ Le fichier '{image_path}' n'existe pas. Place une image dans le dossier du projet.")

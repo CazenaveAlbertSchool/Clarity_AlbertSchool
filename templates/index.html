@@ -1,37 +1,259 @@
-
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Traitement de Documents</title>
     <link rel="stylesheet" href="/static/style.css">
+    <!-- Ajoute la bibliothèque cliente Google API pour l'authentification -->
+    <script src="https://apis.google.com/js/api.js"></script>
 </head>
 <body>
-    <h1>Traitement de Documents</h1>
-    <div id="drop-area" ondrop="dropHandler(event);" ondragover="dragOverHandler(event);">
-        Glissez-déposez un fichier ici
+    <div class="container">
+        <h1>Clarity</h1>
+
+        <!-- Zone de glisser-déposer pour les uploads locaux -->
+        <div id="drop-area" class="drop-area">
+            <p>Glissez-déposez une image ici ou cliquez pour sélectionner</p>
+            <input type="file" id="file-input" accept="image/*" hidden>
+            <button onclick="document.getElementById('file-input').click()">Sélectionner une image</button>
+        </div>
+
+        <!-- Bouton pour importer depuis Google Drive -->
+        <div class="drive-import">
+            <button id="import-from-drive" onclick="importFromDrive()">Importer depuis Google Drive</button>
+            <div id="drive-files-list" class="drive-files-list"></div>
+        </div>
+
+        <!-- Aperçu de l'image -->
+        <div id="preview" class="preview"></div>
+
+        <!-- Résultats -->
+        <div id="results" class="results">
+            <h2>Résultats :</h2>
+            <div id="ocr-text" class="ocr-text">Les résultats s'afficheront ici...</div>
+            <div id="entities" class="entities"></div>
+        </div>
     </div>
-    <button onclick="processFiles()">Traiter les fichiers</button>
-    <div id="results"></div>
+
     <script>
-        function dragOverHandler(ev) {
-            ev.preventDefault();
+        const dropArea = document.getElementById('drop-area');
+        const fileInput = document.getElementById('file-input');
+        const preview = document.getElementById('preview');
+        const ocrText = document.getElementById('ocr-text');
+        const entitiesDiv = document.getElementById('entities');
+        const importDriveButton = document.getElementById('import-from-drive');
+        const driveFilesList = document.getElementById('drive-files-list');
+
+        // Fonction pour gérer les uploads locaux (déjà présente)
+        dropArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropArea.classList.add('highlight');
+        });
+
+        dropArea.addEventListener('dragleave', () => {
+            dropArea.classList.remove('highlight');
+        });
+
+        dropArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropArea.classList.remove('highlight');
+            fileInput.files = e.dataTransfer.files;
+            updatePreview();
+        });
+
+        fileInput.addEventListener('change', updatePreview);
+
+        function updatePreview() {
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                preview.innerHTML = `<img src="${e.target.result}" alt="Aperçu">`;
+                processImage(file);
+            };
+            reader.readAsDataURL(file);
         }
-        
-        function dropHandler(ev) {
-            ev.preventDefault();
-            const files = ev.dataTransfer.files;
-            // Logique pour uploader vers Google Drive ici
-            alert(`Fichier(s) sélectionné(s): ${files.length}`);
+
+        async function processImage(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            ocrText.textContent = "Traitement en cours...";
+            entitiesDiv.innerHTML = "";
+
+            try {
+                const response = await fetch('/process', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    ocrText.textContent = result.text || "Aucun texte détecté.";
+                    if (result.entities && result.entities.length > 0) {
+                        entitiesDiv.innerHTML = "<h3>Entités détectées :</h3><ul>" +
+                            result.entities.map(entity =>
+                                `<li><strong>${entity.type}:</strong> ${entity.text} (confiance: ${entity.confidence || 'N/A'})</li>`
+                            ).join('') + "</ul>";
+                    }
+                } else {
+                    ocrText.textContent = `Erreur: ${result.error}`;
+                }
+            } catch (error) {
+                ocrText.textContent = `Erreur: ${error.message}`;
+            }
         }
-        
-        async function processFiles() {
-            const response = await fetch('/process', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({file_id: 'example-id', file_name: 'example.pdf'})
+
+        // Nouvelle fonction pour importer depuis Google Drive
+        async function importFromDrive() {
+            try {
+                // Charge la bibliothèque cliente Google Drive
+                gapi.load('client:auth2', initDriveClient);
+            } catch (error) {
+                console.error("Erreur lors du chargement de l'API Google:", error);
+            }
+        }
+
+        // Initialise le client Google Drive
+        function initDriveClient() {
+            gapi.client.init({
+                'apiKey': 'TA_CLE_API_GOOGLE_DRIVE',  // Remplace par ta clé API Google Drive
+                'clientId': 'TON_CLIENT_ID.apps.googleusercontent.com',  // Remplace par ton Client ID
+                'scope': 'https://www.googleapis.com/auth/drive.readonly',
+                'discoveryDocs': ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
+            }).then(() => {
+                // Affiche les fichiers depuis Google Drive
+                listDriveFiles();
             });
-            const result = await response.json();
-            document.getElementById('results').innerText = `Document traité: ${result.document_id}`;
+        }
+
+        // Liste les fichiers depuis Google Drive (factures uniquement)
+        async function listDriveFiles() {
+            try {
+                // Utilise la route dédiée aux factures
+                const response = await fetch('/list-invoices');
+                const result = await response.json();
+
+                if (result.files && result.files.length > 0) {
+                    driveFilesList.innerHTML = `<h3>Factures trouvées dans Google Drive (${result.count || result.files.length}):</h3><ul>` +
+                        result.files.map(file =>
+                            `<li><strong>${file.name}</strong> (${file.mimeType || 'type inconnu'}) 
+                                <button onclick="processDriveFile('${file.id}', '${file.name}')">Traiter</button></li>`
+                        ).join('') + "</ul>";
+                } else {
+                    driveFilesList.innerHTML = "<p>Aucune facture trouvée dans Google Drive.</p>";
+                }
+            } catch (error) {
+                console.error("Erreur lors de la récupération des fichiers:", error);
+                driveFilesList.innerHTML = `<p>Erreur: ${error.message}</p>`;
+            }
+        }
+
+        // Traite un fichier depuis Google Drive
+        async function processDriveFile(fileId, fileName) {
+            try {
+                ocrText.textContent = "Traitement en cours...";
+                entitiesDiv.innerHTML = "";
+                
+                const response = await fetch('/process-drive-file', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ file_id: fileId, file_name: fileName })
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    // Affiche le texte extrait
+                    ocrText.textContent = result.text || "Aucun texte détecté.";
+                    
+                    // Affiche les informations de classification
+                    let html = "";
+                    
+                    if (result.classification) {
+                        const cls = result.classification;
+                        const invoiceTypeLabels = {
+                            'invoice': 'Facture',
+                            'quote': 'Devis',
+                            'credit_note': 'Avoir',
+                            'unknown': 'Type inconnu'
+                        };
+                        
+                        html += `<div class="classification-info">
+                            <h3>Classification :</h3>
+                            <p><strong>Type de document :</strong> ${invoiceTypeLabels[cls.invoice_type] || cls.invoice_type}</p>
+                            <p><strong>Est une facture :</strong> ${cls.is_invoice ? '✅ Oui' : '❌ Non'}</p>
+                            <p><strong>Confiance :</strong> ${(cls.confidence * 100).toFixed(1)}%</p>
+                            ${cls.indicators && cls.indicators.length > 0 ? 
+                                `<p><strong>Indicateurs :</strong> ${cls.indicators.join(', ')}</p>` : ''}
+                        </div>`;
+                    }
+                    
+                    // Affiche la date de paiement
+                    if (result.payment_date && result.payment_date.date) {
+                        const pd = result.payment_date;
+                        html += `<div class="payment-date-info">
+                            <h3>Date de paiement :</h3>
+                            <p><strong>Date :</strong> ${pd.date}</p>
+                            <p><strong>Confiance :</strong> ${(pd.confidence * 100).toFixed(1)}%</p>
+                            <p><strong>Méthode d'extraction :</strong> ${pd.method || 'N/A'}</p>
+                        </div>`;
+                    } else {
+                        html += `<div class="payment-date-info">
+                            <h3>Date de paiement :</h3>
+                            <p>❌ Aucune date de paiement trouvée</p>
+                        </div>`;
+                    }
+                    
+                    // Affiche les résultats des notifications
+                    if (result.notifications) {
+                        html += `<div class="notifications-info">
+                            <h3>Notifications créées :</h3>`;
+                        
+                        // Notification Calendar
+                        if (result.notifications.calendar) {
+                            const cal = result.notifications.calendar;
+                            if (cal.success) {
+                                html += `<p>✅ <strong>Rappel Calendar créé</strong> 
+                                    <a href="${cal.event_link}" target="_blank">Voir l'événement</a></p>`;
+                            } else {
+                                html += `<p>❌ <strong>Échec Calendar :</strong> ${cal.error || 'Erreur inconnue'}</p>`;
+                            }
+                        }
+                        
+                        // Notification Email
+                        if (result.notifications.email) {
+                            const email = result.notifications.email;
+                            if (email.success) {
+                                html += `<p>✅ <strong>Email envoyé</strong> à ${email.recipient || 'destinataire'}</p>`;
+                            } else {
+                                html += `<p>❌ <strong>Échec Email :</strong> ${email.error || 'Erreur inconnue'}</p>`;
+                            }
+                        }
+                        
+                        html += `</div>`;
+                    }
+                    
+                    // Affiche les entités détectées
+                    if (result.entities && result.entities.length > 0) {
+                        html += "<h3>Entités détectées :</h3><ul>" +
+                            result.entities.map(entity =>
+                                `<li><strong>${entity.type}:</strong> ${entity.text} (confiance: ${entity.confidence || 'N/A'})</li>`
+                            ).join('') + "</ul>";
+                    }
+                    
+                    entitiesDiv.innerHTML = html;
+                } else {
+                    ocrText.textContent = `Erreur: ${result.error}`;
+                    entitiesDiv.innerHTML = "";
+                }
+            } catch (error) {
+                ocrText.textContent = `Erreur: ${error.message}`;
+                entitiesDiv.innerHTML = "";
+            }
         }
     </script>
 </body>

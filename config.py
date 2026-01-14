@@ -16,3 +16,8 @@ LOCATION = os.getenv('GOOGLE_CLOUD_LOCATION', 'eu-west1')
 DOCUMENTAI_PROCESSOR_ID = os.getenv('DOCUMENTAI_PROCESSOR_ID')
 BUCKET_NAME = os.getenv('GCS_BUCKET_NAME', 'clarity-documents-bucket')
 
+# Variables pour les notifications (optionnelles)
+# SENDER_EMAIL: Adresse email de l'expéditeur (utilisée pour Gmail API)
+# RECIPIENT_EMAIL: Adresse email du destinataire (par défaut, utilise SENDER_EMAIL)
+SENDER_EMAIL = os.getenv('SENDER_EMAIL')
+RECIPIENT_EMAIL = os.getenv('RECIPIENT_EMAIL')

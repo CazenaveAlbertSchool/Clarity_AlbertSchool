@@ -1,52 +1,209 @@
-
 from flask import Flask, render_template, request, jsonify
-from services.drive_service import list_files, download_file
+import os
 from services.vision_service import detect_text
 from services.documentai_service import process_document
 from services.firestore_service import save_result
-import os
+from services.drive_service import list_files, download_file, list_invoices
+from services.invoice_service import process_invoice
+from services.calendar_service import create_payment_reminder, create_payment_event
+from services.email_service import send_payment_reminder_email
 
 app = Flask(__name__)
+# os.makedirs("temp", exist_ok=True)
+# Crée le dossier temp/ avec un chemin absolu
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMP_DIR = os.path.join(BASE_DIR, "temp")
+os.makedirs(TEMP_DIR, exist_ok=True)
 
+# Route pour la page d'accueil (unique)
 @app.route('/')
-def index():
+def home():
     return render_template('index.html')
 
+# Route pour traiter les fichiers uploadés
 @app.route('/process', methods=['POST'])
 def process():
-    file_id = request.json.get('file_id')
-    file_name = request.json.get('file_name')
-    
-    # 1. Télécharger le fichier depuis Google Drive
-    file_path = download_file(file_id, file_name)
-    
-    # 2. Extraire le texte avec Vision API
-    text = detect_text(file_path)
-    
-    # 3. Classifier avec Document AI
-    document_data = process_document(text)
-    
-    # 4. Sauvegarder dans Firestore
-    doc_id = save_result(file_name, text, document_data)
-    
-    return jsonify({"status": "success", "document_id": doc_id})
-
-@app.route('/test-ocr', methods=['POST'])
-def test_ocr():
     if 'file' not in request.files:
-        return jsonify({"error": "Aucun fichier uploadé"}), 400
+        app.logger.error("Aucun fichier dans la requête.")
+        return jsonify({"error": "Aucun fichier sélectionné"}), 400
 
     file = request.files['file']
     if file.filename == '':
+        app.logger.error("Fichier vide.")
         return jsonify({"error": "Fichier vide"}), 400
 
-    # Sauvegarde temporairement le fichier
-    file_path = f"temp/{file.filename}"
-    file.save(file_path)
+    if file:
+        # Utilise un chemin absolu pour sauvegarder et traiter le fichier
+        file_path = os.path.join(TEMP_DIR, file.filename)
+        abs_path = os.path.abspath(file_path)
+        app.logger.info(f"Sauvegarde du fichier : {abs_path}")
+        file.save(abs_path)
 
-    # Appel à la fonction OCR
-    text = detect_text(file_path)
-    return jsonify({"text": text})
+        # Vérifie que le fichier existe après sauvegarde
+        if not os.path.exists(abs_path):
+            app.logger.error(f"Fichier introuvable après sauvegarde : {abs_path}")
+            return jsonify({"error": "Fichier introuvable après sauvegarde"}), 500
+
+        # Passe le chemin absolu à detect_text
+        text = detect_text(abs_path)
+        if text is None:
+            app.logger.error("Échec de la détection de texte.")
+            return jsonify({"error": "Échec de la détection de texte"}), 500
+
+        return jsonify({"status": "success", "text": text})
+
+
+# Route pour lister les fichiers Google Drive
+@app.route('/list-drive-files')
+def list_drive_files():
+    """Liste tous les fichiers (optionnel: filtrer par type MIME)."""
+    mime_type = request.args.get('mime_type', None)
+    invoice_only = request.args.get('invoice_only', 'false').lower() == 'true'
+    
+    if invoice_only:
+        files = list_invoices()
+    else:
+        files = list_files(mime_type=mime_type)
+    
+    return jsonify({"files": files})
+
+# Route pour lister uniquement les factures
+@app.route('/list-invoices')
+def list_invoices_route():
+    """Liste uniquement les factures dans Google Drive."""
+    files = list_invoices()
+    return jsonify({"files": files, "count": len(files)})
+
+# Route pour traiter un fichier Google Drive
+@app.route('/process-drive-file', methods=['POST'])
+def process_drive_file():
+    data = request.json
+    file_id = data.get('file_id')
+    file_name = data.get('file_name')
+    create_notifications = data.get('create_notifications', True)  # Par défaut, créer les notifications
+
+    if not file_id or not file_name:
+        return jsonify({"error": "file_id et file_name sont requis"}), 400
+
+    file_path = download_file(file_id, file_name)
+    if not file_path:
+        return jsonify({"error": "Échec du téléchargement depuis Google Drive"}), 500
+
+    # Traite directement avec DocumentAI (qui fait OCR + extraction d'entités)
+    documentai_result = process_document(file_path)
+    if documentai_result is None:
+        return jsonify({"error": "Échec du traitement Document AI"}), 500
+
+    # Utilise le texte extrait par DocumentAI
+    text = documentai_result.get("full_text", "")
+    entities = documentai_result.get("entities", [])
+    
+    # Optionnel: utilise aussi Vision API pour comparaison/fallback
+    if not text:
+        text = detect_text(file_path)
+        if text is None:
+            return jsonify({"error": "Échec de la détection de texte"}), 500
+
+    # Classifie le document et extrait la date de paiement
+    invoice_info = process_invoice(text, entities)
+    classification = invoice_info.get("classification", {})
+    payment_info = invoice_info.get("payment_date", {})
+    
+    # Vérifie si c'est bien une facture
+    if not classification.get("is_invoice", False):
+        app.logger.warning(f"Le document {file_name} ne semble pas être une facture (confiance: {classification.get('confidence', 0):.2f})")
+    
+    # Sauvegarde dans Firestore avec les informations supplémentaires
+    doc_id = save_result(file_name, text, documentai_result, classification, payment_info)
+    
+    # Initialise les résultats des notifications
+    calendar_result = None
+    email_result = None
+    
+    # Crée les notifications si c'est une facture avec une date de paiement et si activé
+    if create_notifications and classification.get("is_invoice", False) and payment_info.get("payment_date"):
+        payment_date = payment_info.get("payment_date")
+        
+        # Extrait des informations supplémentaires pour les notifications
+        invoice_data = {
+            "name": file_name,
+            "amount": None,
+            "vendor": None,
+            "invoice_number": None
+        }
+        
+        # Essaie d'extraire le montant et le fournisseur depuis les entités
+        for entity in entities:
+            entity_type = entity.get("type", "").lower()
+            if "amount" in entity_type or "total" in entity_type:
+                invoice_data["amount"] = entity.get("text")
+            elif "vendor" in entity_type or "organization" in entity_type:
+                invoice_data["vendor"] = entity.get("text")
+            elif "invoice_id" in entity_type or "invoice_number" in entity_type:
+                invoice_data["invoice_number"] = entity.get("text")
+        
+        # Crée un rappel dans Calendar (3 jours avant)
+        try:
+            calendar_result = create_payment_reminder(
+                invoice_name=file_name,
+                payment_date=payment_date,
+                invoice_info=invoice_data
+            )
+            if calendar_result.get("success"):
+                app.logger.info(f"Rappel Calendar créé: {calendar_result.get('event_link')}")
+            else:
+                app.logger.warning(f"Échec création rappel Calendar: {calendar_result.get('error')}")
+        except Exception as e:
+            app.logger.error(f"Erreur lors de la création du rappel Calendar: {e}")
+        
+        # Crée un événement pour le jour de l'échéance
+        try:
+            event_result = create_payment_event(
+                invoice_name=file_name,
+                payment_date=payment_date,
+                invoice_info=invoice_data
+            )
+            if event_result.get("success"):
+                app.logger.info(f"Événement échéance créé: {event_result.get('event_link')}")
+        except Exception as e:
+            app.logger.error(f"Erreur lors de la création de l'événement: {e}")
+        
+        # Envoie un email de rappel
+        try:
+            email_result = send_payment_reminder_email(
+                invoice_name=file_name,
+                payment_date=payment_date,
+                invoice_info=invoice_data
+            )
+            if email_result.get("success"):
+                app.logger.info(f"Email de rappel envoyé: {email_result.get('message_id')}")
+            else:
+                app.logger.warning(f"Échec envoi email: {email_result.get('error')}")
+        except Exception as e:
+            app.logger.error(f"Erreur lors de l'envoi de l'email: {e}")
+    
+    return jsonify({
+        "status": "success",
+        "document_id": doc_id,
+        "text": text,
+        "entities": entities,
+        "classification": {
+            "is_invoice": classification.get("is_invoice", False),
+            "confidence": classification.get("confidence", 0.0),
+            "invoice_type": classification.get("invoice_type", "unknown"),
+            "indicators": classification.get("indicators", [])
+        },
+        "payment_date": {
+            "date": payment_info.get("date_string"),
+            "datetime": payment_info.get("payment_date").isoformat() if payment_info.get("payment_date") else None,
+            "confidence": payment_info.get("confidence", 0.0),
+            "method": payment_info.get("method")
+        },
+        "notifications": {
+            "calendar": calendar_result,
+            "email": email_result
+        }
+    })
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)), debug=True)

@@ -1,52 +1,145 @@
 body {
-    font-family: Arial, sans-serif;
-    margin: 20px;
-    background-color: #f4f4f9;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: #f5f5f5;
     color: #333;
 }
 
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    background-color: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
 h1 {
+    text-align: center;
     color: #444;
-    text-align: center;
 }
 
-#drop-area {
+.drop-area {
     border: 2px dashed #6c63ff;
-    border-radius: 5px;
-    padding: 40px;
+    border-radius: 8px;
+    padding: 30px;
     text-align: center;
-    margin: 20px auto;
-    width: 80%;
-    background-color: #fff;
+    margin: 20px 0;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all 0.3s;
 }
 
-#drop-area:hover {
-    background-color: #f0f0f5;
+.drop-area.highlight {
+    background-color: #f0f0ff;
 }
 
-button {
-    display: block;
-    margin: 20px auto;
-    padding: 10px 20px;
+.drop-area p {
+    margin: 10px 0;
+}
+
+.drop-area button {
     background-color: #6c63ff;
     color: white;
     border: none;
+    padding: 10px 20px;
     border-radius: 5px;
     cursor: pointer;
     font-size: 16px;
 }
 
-button:hover {
+.drop-area button:hover {
     background-color: #5a52d8;
 }
 
-#results {
+.preview {
+    margin: 20px 0;
+    text-align: center;
+}
+
+.preview img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.results {
     margin-top: 20px;
     padding: 15px;
     border: 1px solid #ddd;
     border-radius: 5px;
-    background-color: #fff;
+    background-color: #f9f9f9;
+}
+
+.ocr-text {
+    white-space: pre-wrap;
+    font-family: monospace;
+    background-color: white;
+    padding: 15px;
+    border-radius: 5px;
+}
+
+.entities ul {
+    list-style-type: none;
+    padding: 0;
+}
+
+.entities li {
+    margin: 5px 0;
+    padding: 5px;
+    background-color: #f0f0f0;
+    border-radius: 3px;
+}
+.drive-import {
+    margin: 20px 0;
     text-align: center;
+}
+
+.drive-import button {
+    background-color: #4285f4;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.drive-import button:hover {
+    background-color: #3367d6;
+}
+
+.drive-files-list {
+    margin-top: 15px;
+    text-align: left;
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    padding: 10px;
+    border-radius: 5px;
+}
+
+.drive-files-list ul {
+    list-style-type: none;
+    padding: 0;
+}
+
+.drive-files-list li {
+    margin: 5px 0;
+    padding: 5px;
+    background-color: #f9f9f9;
+    border-radius: 3px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.drive-files-list button {
+    background-color: #6c63ff;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 3px;
+    cursor: pointer;
 }
