@@ -19,9 +19,11 @@
             <button onclick="document.getElementById('file-input').click()">Sélectionner une image</button>
         </div>
 
-        <!-- Bouton pour importer depuis Google Drive -->
+        <!-- Boutons pour importer depuis Google Drive -->
         <div class="drive-import">
             <button id="import-from-drive" onclick="importFromDrive()">Importer depuis Google Drive</button>
+            <button id="process-folder" onclick="processDriveFolder()">Traiter le dossier \"Factures\"</button>
+            <div id="drive-folder-status" class="drive-folder-status"></div>
             <div id="drive-files-list" class="drive-files-list"></div>
         </div>
 
@@ -44,6 +46,7 @@
         const entitiesDiv = document.getElementById('entities');
         const importDriveButton = document.getElementById('import-from-drive');
         const driveFilesList = document.getElementById('drive-files-list');
+        const driveFolderStatus = document.getElementById('drive-folder-status');
 
         // Fonction pour gérer les uploads locaux (déjà présente)
         dropArea.addEventListener('dragover', (e) => {
@@ -119,13 +122,16 @@
         // Initialise le client Google Drive
         function initDriveClient() {
             gapi.client.init({
-                'apiKey': 'TA_CLE_API_GOOGLE_DRIVE',  // Remplace par ta clé API Google Drive
-                'clientId': 'TON_CLIENT_ID.apps.googleusercontent.com',  // Remplace par ton Client ID
-                'scope': 'https://www.googleapis.com/auth/drive.readonly',
-                'discoveryDocs': ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
+                apiKey: "{{ google_api_key }}",
+                clientId: "{{ google_client_id }}",
+                scope: 'https://www.googleapis.com/auth/drive.readonly',
+                discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
             }).then(() => {
                 // Affiche les fichiers depuis Google Drive
                 listDriveFiles();
+            }).catch(error => {
+                console.error("Erreur lors de l'initialisation du client Drive:", error);
+                driveFilesList.innerHTML = `<p class="error-message">❌ Erreur d'initialisation Google Drive : ${error.message || error}</p>`;
             });
         }
 
@@ -154,7 +160,7 @@
         // Traite un fichier depuis Google Drive
         async function processDriveFile(fileId, fileName) {
             try {
-                ocrText.textContent = "Traitement en cours...";
+                ocrText.textContent = `🔄 Traitement de la facture \"${fileName}\" en cours...`;
                 entitiesDiv.innerHTML = "";
                 
                 const response = await fetch('/process-drive-file', {
@@ -166,7 +172,7 @@
                 });
 
                 const result = await response.json();
-                if (response.ok) {
+                if (response.ok && result.status === "success") {
                     // Affiche le texte extrait
                     ocrText.textContent = result.text || "Aucun texte détecté.";
                     
@@ -247,12 +253,67 @@
                     
                     entitiesDiv.innerHTML = html;
                 } else {
-                    ocrText.textContent = `Erreur: ${result.error}`;
+                    const errorMsg = result.error || "Erreur inconnue lors du traitement du fichier.";
+                    ocrText.textContent = `❌ Erreur lors du traitement de \"${fileName}\" : ${errorMsg}`;
                     entitiesDiv.innerHTML = "";
                 }
             } catch (error) {
-                ocrText.textContent = `Erreur: ${error.message}`;
+                ocrText.textContent = `❌ Erreur réseau ou serveur : ${error.message}`;
                 entitiesDiv.innerHTML = "";
+            }
+        }
+
+        // Traite automatiquement toutes les factures du dossier "Factures"
+        async function processDriveFolder() {
+            driveFolderStatus.textContent = "🔄 Traitement du dossier \"Factures\" en cours...";
+            driveFolderStatus.className = "drive-folder-status info";
+
+            try {
+                const response = await fetch('/process-drive-folder', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        folder_name: "Factures",
+                        create_notifications: true
+                    })
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    const err = result.error || result.message || "Erreur inconnue";
+                    driveFolderStatus.innerHTML = `❌ Erreur lors du traitement du dossier : ${err}`;
+                    driveFolderStatus.className = "drive-folder-status error";
+                    return;
+                }
+
+                if (result.status === "no_files") {
+                    driveFolderStatus.innerHTML = `⚠️ ${result.message}`;
+                    driveFolderStatus.className = "drive-folder-status warning";
+                    return;
+                }
+
+                // Succès
+                const count = result.file_count || (result.results ? result.results.length : 0);
+                driveFolderStatus.innerHTML = `✅ Dossier \"${result.folder_name}\" traité. Factures analysées : ${count}.`;
+                driveFolderStatus.className = "drive-folder-status success";
+
+                // Optionnel : afficher un résumé simple des fichiers traités
+                if (result.results && result.results.length > 0) {
+                    const summary = result.results.map(r => {
+                        const name = r.file_name || "Sans nom";
+                        const isInvoice = r.classification && r.classification.is_invoice;
+                        const date = r.payment_date && r.payment_date.date ? r.payment_date.date : "N/A";
+                        return `<li><strong>${name}</strong> — ${isInvoice ? 'Facture' : 'Non facture'} — Date de paiement: ${date}</li>`;
+                    }).join('');
+
+                    driveFilesList.innerHTML = `<h3>Résumé des factures traitées :</h3><ul>${summary}</ul>`;
+                }
+            } catch (error) {
+                driveFolderStatus.innerHTML = `❌ Erreur réseau ou serveur : ${error.message}`;
+                driveFolderStatus.className = "drive-folder-status error";
             }
         }
     </script>

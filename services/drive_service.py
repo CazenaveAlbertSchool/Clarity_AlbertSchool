@@ -19,6 +19,42 @@ def get_drive_service():
     credentials, _ = default()
     return build('drive', 'v3', credentials=credentials)
 
+
+def get_folder_id_by_name(name):
+    """
+    Récupère l'ID d'un dossier Google Drive à partir de son nom.
+
+    Args:
+        name: Nom du dossier (ex: 'Factures')
+
+    Returns:
+        str ou None: ID du dossier si trouvé, sinon None
+    """
+    try:
+        service = get_drive_service()
+        query = (
+            "mimeType='application/vnd.google-apps.folder' "
+            f"and name='{name}' and trashed=false"
+        )
+        results = service.files().list(
+            q=query,
+            pageSize=1,
+            fields="files(id, name)"
+        ).execute()
+        files = results.get('files', [])
+        if not files:
+            logger.warning(f"Dossier '{name}' introuvable dans Google Drive.")
+            return None
+        folder_id = files[0]['id']
+        logger.info(f"Dossier '{name}' trouvé avec ID: {folder_id}")
+        return folder_id
+    except HttpError as e:
+        logger.error(f"Erreur Drive API lors de la recherche du dossier '{name}': {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Erreur inattendue lors de la recherche du dossier '{name}': {e}", exc_info=True)
+        return None
+
 def is_invoice_file(file_name):
     """
     Détermine si un fichier est probablement une facture basé sur son nom.
@@ -133,6 +169,68 @@ def list_invoices():
         list: Liste de factures avec 'id', 'name', 'mimeType', 'modifiedTime'
     """
     return list_files(invoice_only=True)
+
+
+def list_files_in_folder(folder_id, invoice_only=False):
+    """
+    Liste les fichiers dans un dossier Google Drive spécifique.
+
+    Args:
+        folder_id: ID du dossier parent dans Drive
+        invoice_only: Si True, filtre uniquement les fichiers qui semblent être des factures
+
+    Returns:
+        list: Liste de fichiers avec 'id', 'name', 'mimeType', 'modifiedTime'
+    """
+    try:
+        service = get_drive_service()
+
+        # Requête: fichiers dont le parent est le dossier, non supprimés
+        query_parts = [f"'{folder_id}' in parents", "trashed=false"]
+
+        # Exclut les sous-dossiers et fichiers Google Docs
+        query_parts.append("mimeType!='application/vnd.google-apps.folder'")
+
+        query = " and ".join(query_parts)
+
+        logger.info(f"Requête Drive (dossier): {query}")
+        results = service.files().list(
+            q=query,
+            pageSize=100,
+            fields="files(id, name, mimeType, modifiedTime)"
+        ).execute()
+
+        files = results.get('files', [])
+
+        # Filtre par nom si invoice_only est True
+        if invoice_only:
+            files = [f for f in files if is_invoice_file(f.get('name', ''))]
+            logger.info(f"Fichiers filtrés dans le dossier (factures uniquement): {len(files)}")
+
+        return files
+
+    except HttpError as e:
+        logger.error(f"Erreur Drive API lors de la liste des fichiers du dossier: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"Erreur inattendue lors de la liste des fichiers du dossier: {e}", exc_info=True)
+        return []
+
+
+def list_invoices_in_folder(folder_name="Factures"):
+    """
+    Liste uniquement les factures dans un dossier Google Drive donné (par défaut 'Factures').
+
+    Args:
+        folder_name: Nom du dossier à rechercher
+
+    Returns:
+        list: Liste de factures avec 'id', 'name', 'mimeType', 'modifiedTime'
+    """
+    folder_id = get_folder_id_by_name(folder_name)
+    if not folder_id:
+        return []
+    return list_files_in_folder(folder_id, invoice_only=True)
 
 def download_file(file_id, file_name):
     """
